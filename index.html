@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Front Door</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ddd; font-family: sans-serif; overflow: hidden; }
+  video { width: 100vw; height: 100vh; object-fit: contain; background: #000; display: none; }
+  #setup { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; flex-direction: column; gap: 20px; padding: 16px; }
+  #setup input { width: 80vw; font-size: 22px; padding: 14px; border-radius: 8px; border: 1px solid #555; background: #111; color: #fff; }
+  #setup button, #reset { font-size: 22px; padding: 12px 28px; border-radius: 8px; border: 0; background: #2d6cdf; color: #fff; }
+  #msg { position: absolute; bottom: 24px; left: 0; right: 0; text-align: center; font-size: 20px; opacity: .8; }
+  #reset { position: absolute; top: 16px; right: 16px; font-size: 16px; padding: 8px 14px; background: #333; opacity: .6; display: none; }
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline controls></video>
+<div id="setup">
+  <div style="font-size:26px">Paste the camera stream URL (.m3u8)</div>
+  <input id="url" type="text" placeholder="https://...m3u8...">
+  <button id="save">Save &amp; Play</button>
+</div>
+<button id="reset">Change URL</button>
+<div id="msg"></div>
+
+<script>
+(function () {
+  var KEY = "frontdoor_stream_url";
+  var v = document.getElementById("v"), setup = document.getElementById("setup"),
+      input = document.getElementById("url"), msg = document.getElementById("msg"),
+      reset = document.getElementById("reset");
+
+  function store(u) { try { localStorage.setItem(KEY, u); } catch (e) {} }
+  function load() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+  function clear() { try { localStorage.removeItem(KEY); } catch (e) {} }
+
+  function getUrl() {
+    var h = location.hash.slice(1);
+    if (h) { var u = decodeURIComponent(h); store(u); return u; }
+    return load();
+  }
+
+  function showSetup() { v.style.display = "none"; reset.style.display = "none"; setup.style.display = "flex"; input.focus(); }
+
+  function play(u) {
+    setup.style.display = "none"; v.style.display = "block"; reset.style.display = "block";
+    msg.textContent = "Connecting...";
+    var native = v.canPlayType("application/vnd.apple.mpegurl");
+    if (native) {
+      v.src = u;
+    } else {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js";
+      s.onload = function () {
+        if (window.Hls && Hls.isSupported()) {
+          var hls = new Hls({ liveSyncDurationCount: 3 });
+          hls.loadSource(u); hls.attachMedia(v);
+          hls.on(Hls.Events.ERROR, function (e, d) { if (d.fatal) retry(u); });
+        } else { v.src = u; }
+      };
+      s.onerror = function () { v.src = u; };
+      document.head.appendChild(s);
+    }
+    var p = v.play(); if (p && p.catch) p.catch(function () { v.muted = true; v.play(); });
+  }
+
+  function retry(u) { msg.textContent = "Reconnecting..."; setTimeout(function () { location.reload(); }, 5000); }
+
+  v.addEventListener("playing", function () { msg.textContent = ""; });
+  v.addEventListener("error", function () { retry(getUrl()); });
+  v.addEventListener("stalled", function () { msg.textContent = "Buffering..."; });
+
+  document.getElementById("save").onclick = function () {
+    var u = input.value.trim();
+    if (u.indexOf(".m3u8") < 0) { msg.textContent = "That doesn't look like a stream URL"; return; }
+    store(u); location.hash = encodeURIComponent(u); play(u);
+  };
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") document.getElementById("save").click(); });
+  reset.onclick = function () { clear(); location.hash = ""; v.pause(); v.removeAttribute("src"); showSetup(); };
+
+  var u = getUrl();
+  if (u) play(u); else showSetup();
+})();
+</script>
+</body>
+</html>
